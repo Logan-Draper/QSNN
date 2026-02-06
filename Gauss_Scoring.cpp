@@ -21,7 +21,9 @@ struct Genotype {
 
 const double STDDEV = 3;
 
-const size_t EPOCHS = 2;
+const size_t CROSSBREED_RATE = 15;
+
+const size_t EPOCHS = 100;
 // Percentage of the time genes will randomly mutate
 const size_t MUTATION_RATE = 35;
 // Percentage = genes will mutate by
@@ -35,8 +37,19 @@ const size_t MUTANTS = 10;
 const vector<double> test_data = {0, 0, 1, 0, 1, 1, 1, 0, 1, 0};
 
 // Calculates the bell curve percent for a given region between pos_1 and pos_2
-double gauss_percentage(double pos_1, double pos_2, double mean,
-                        double stddev) {
+
+double pdf_calculation(double pos, double mean, double stddev) {
+  double base_denom = sqrt(2 * M_PI * pow(stddev, 2));
+  double exponent_numer = pow((pos - mean), 2);
+  double exponent_denom = (2 * pow(stddev, 2));
+  double exponent_val = -(exponent_numer / exponent_denom);
+  double base_val = 1 / base_denom;
+  double e_raised = pow(M_E, exponent_val);
+  double total = base_val * e_raised;
+  return total;
+}
+
+double cdf_calculation(double pos_1, double pos_2, double mean, double stddev) {
 
   double z_score_1 = (pos_1 - mean) / (stddev);
 
@@ -58,6 +71,32 @@ void print_vec(vector<double> vec) {
   printf("\n");
   return;
 }
+
+vector<Genotype> crossbreed(vector<Genotype> generation) {
+  vector<Genotype> gen_two;
+  for (int i = 0; i + 1 <= generation.size(); i += 2) {
+    int crossbreed_chance = rand() % 100;
+
+    Genotype parent_a = generation[i];
+    Genotype parent_b = generation[i + 1];
+    if (crossbreed_chance <= CROSSBREED_RATE) {
+
+      int gauss_to_swap_a = rand() % NUM_GAUSS;
+      int gauss_to_swap_b = rand() % NUM_GAUSS;
+
+      Genotype child_a = parent_a;
+      child_a.Gaussians[gauss_to_swap_a] = parent_b.Gaussians[gauss_to_swap_b];
+      Genotype child_b = parent_b;
+      child_b.Gaussians[gauss_to_swap_b] = parent_a.Gaussians[gauss_to_swap_a];
+      gen_two.push_back(child_a);
+      gen_two.push_back(child_b);
+    }
+    gen_two.push_back(parent_a);
+    gen_two.push_back(parent_b);
+  }
+  return gen_two;
+}
+
 // Score the mutant against the spike train using Mean Absolute Error Algorithm
 double score(vector<double> spike_train, vector<double> mutant) {
   double score = 0.0;
@@ -79,7 +118,7 @@ vector<Gaussian> random_gauss(int upper_bound) {
   }
   for (int i = 0; i < NUM_GAUSS; i++) {
     double mean = rand() % upper_bound;
-    double stddev = rand() % (int)STDDEV + STDDEV - (int)STDDEV;
+    double stddev = rand() % (int)STDDEV;
     Gaussian curr = {.mean = mean, .stddev = stddev};
     ret.push_back(curr);
   }
@@ -107,7 +146,7 @@ vector<Genotype> tournament(vector<Genotype> mutants) {
       mutant_idx_a = rand() % mutants.size();
       mutant_idx_b = rand() % mutants.size();
 
-    } while (mutant_idx_a != mutant_idx_b);
+    } while (mutant_idx_a == mutant_idx_b);
     int mutant_idx_a_score = mutants[mutant_idx_a].score;
     int mutant_idx_b_score = mutants[mutant_idx_b].score;
     if (mutant_idx_a_score > mutant_idx_b_score) {
@@ -132,14 +171,11 @@ void mutate(vector<Genotype> &Genes) {
       int pos_neg = rand() % 2;
       // Increases it by percentage based on mutation_sig
       if (pos_neg == 0) {
-        int origin_mean = Genes[i].Gaussians[gaussian_changed].mean;
-        int new_mean = (1 + (mutation_sig / 100)) * origin_mean;
-        Genes[i].Gaussians[gaussian_changed].mean = new_mean;
-      }
-      if (pos_neg == 1) {
-        int origin_mean = Genes[i].Gaussians[gaussian_changed].mean;
-        int new_mean = (1 - (mutation_sig / 100)) * origin_mean;
-        Genes[i].Gaussians[gaussian_changed].mean = new_mean;
+        double delta = mutation_sig / 100.0;
+        if (pos_neg == 1) {
+          delta = -delta;
+        }
+        Genes[i].Gaussians[gaussian_changed].mean *= (1.0 + delta);
       }
     }
   }
@@ -149,12 +185,12 @@ void normalized_vector(vector<Point> &vec) {
 
   for (int i = 0; i < vec.size(); i++) {
     int x_val = vec[i].x;
-    int new_x = (2 * x_val / vec.size()) - 1;
+    double new_x = (2.0 * x_val / vec.size()) - 1;
     vec[i].x = new_x;
   }
 }
 
-double fitness(Genotype &gene, vector<double> spike_train) {
+double fitness(Genotype &gene, vector<Point> spike_train) {
   if (spike_train.size() <= 0) {
     fprintf(stderr, "ERROR | INVALID VECTOR | spike_train vector is of size >= "
                     "0. Terminating\n");
@@ -162,14 +198,14 @@ double fitness(Genotype &gene, vector<double> spike_train) {
   }
   double fitness_score = 0;
 
-  for (int i = 0; i <= spike_train.size(); i++) {
-    double curr_val = spike_train[i];
+  for (int i = 0; i < spike_train.size(); i++) {
+    double curr_val = spike_train[i].y;
     double rolling_percentage = 0;
     for (int j = 0; j < gene.Gaussians.size(); j++) {
       double curr_gauss_mean = gene.Gaussians[j].mean;
       double curr_gauss_stddev = gene.Gaussians[j].stddev;
       double percentage =
-          gauss_percentage(i, i + 1, curr_gauss_mean, curr_gauss_stddev);
+          pdf_calculation(spike_train[i].x, curr_gauss_mean, curr_gauss_stddev);
       rolling_percentage += percentage;
     }
     fitness_score += curr_val - rolling_percentage;
@@ -189,8 +225,8 @@ vector<double> random_vec(int upper_bound) {
     int index_1 = mean;
     int index_2 = index_1 + 1;
     // Runs down the right side of the Gaussian
-    while (index_2 <= upper_bound) {
-      double result = abs(gauss_percentage(index_1, index_2, mean, stddev));
+    while (index_2 < upper_bound) {
+      double result = abs(cdf_calculation(index_1, index_2, mean, stddev));
       ret[index_1] += result;
       index_1++;
       index_2++;
@@ -199,7 +235,7 @@ vector<double> random_vec(int upper_bound) {
     index_2 = index_1 - 1;
     // Runs down the left side of the Gaussian
     while (index_2 >= 0) {
-      double result = abs(gauss_percentage(index_1, index_2, mean - 1, stddev));
+      double result = abs(cdf_calculation(index_1, index_2, mean - 1, stddev));
       ret[index_1] += result;
       index_1--;
       index_2--;
@@ -209,4 +245,38 @@ vector<double> random_vec(int upper_bound) {
   return ret;
 }
 
-int main(int argc, char *argv[]) { for (int i = 0; i;) }
+int main(int argc, char *argv[]) {
+
+  // Spike Train Normalization;
+  vector<Point> test_data_p;
+  for (int i = 0; i < test_data.size(); i++) {
+    test_data_p.push_back({(double)i, (bool)test_data[i]});
+  }
+  normalized_vector(test_data_p);
+
+  vector<Genotype> generation;
+  for (int i = 0; i < MUTANTS; i++) {
+    vector<Gaussian> gausses = random_gauss(TRAIN_LEN);
+    Genotype curr = {.Gaussians = gausses, .score = -1};
+    fitness(curr, test_data_p);
+    generation.push_back(curr);
+  }
+
+  for (int i = 0; i < EPOCHS; i++) {
+    vector<Genotype> winners = tournament(generation);
+    vector<Genotype> crossbred_generation = crossbreed(winners);
+    mutate(crossbred_generation);
+    double average_fitness = 0;
+    double best_fitness = 0;
+    for (int j = 0; j < winners.size(); j++) {
+      double curr_fitness = fitness(winners[j], test_data_p);
+      average_fitness += curr_fitness;
+      if (curr_fitness > best_fitness) {
+        best_fitness = curr_fitness;
+      }
+    }
+    average_fitness = average_fitness / winners.size();
+    printf("AVERAGE FITNESS: %.2lf\nBEST FITNESS: %.2lf\n", average_fitness,
+           best_fitness);
+  }
+}
