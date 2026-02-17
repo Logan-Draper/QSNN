@@ -133,11 +133,11 @@ vector<Point> build_point_vec(const vector<double> &vec) {
 vector<Genotype> tournament(const vector<Genotype> &mutants) {
     vector<Genotype> Winners(mutants.size());
 
-    for (size_t i = 0; i < 25; i++) {
+    for (size_t i = 0; i < 2; i++) {
         Winners[i] = mutants[i];
     }
 
-    for (size_t i = 25; i < mutants.size(); i++) {
+    for (size_t i = 2; i < mutants.size(); i++) {
         int mutant_idx_b, mutant_idx_a;
         Genotype winner;
 
@@ -149,7 +149,7 @@ vector<Genotype> tournament(const vector<Genotype> &mutants) {
         double mutant_idx_a_score = mutants[mutant_idx_a].score;
         double mutant_idx_b_score = mutants[mutant_idx_b].score;
 
-        if (mutant_idx_a_score > mutant_idx_b_score) {
+        if (mutant_idx_a_score < mutant_idx_b_score) {
             winner = mutants[mutant_idx_a];
         } else {
             winner = mutants[mutant_idx_b];
@@ -298,7 +298,7 @@ int main(int argc, char *argv[]) {
 
     vector<double> test_data(spike_train_length);
     for (size_t i = 0; i < test_data.size(); i++) {
-        test_data[i] = rand() <= density;
+        test_data[i] = randf() <= density;
     }
 
     // Spike Train Normalization;
@@ -325,7 +325,7 @@ int main(int argc, char *argv[]) {
     for (size_t i = 0; i < epochs; i++) {
         sort(generation.begin(), generation.end(),
              [](const Genotype &a, const Genotype &b) {
-                 return a.score > b.score;
+                 return a.score < b.score;
              });
 
         vector<Genotype> winners = tournament(generation);
@@ -333,21 +333,21 @@ int main(int argc, char *argv[]) {
         mutate(crossbred_generation);
 
         double average_fitness = 0;
-        double best_fitness = DBL_MIN;
+        double best_fitness = DBL_MAX;
         for (size_t j = 0; j < winners.size(); j++) {
             double curr_fitness =
                 fitness(crossbred_generation[j], normalized_spike_train);
             average_fitness += curr_fitness;
 
-            if (curr_fitness > best_fitness) {
+            if (curr_fitness < best_fitness) {
                 best_fitness = curr_fitness;
             }
         }
 
         average_fitness = average_fitness / winners.size();
 
-        printf("avgerage_fitness: %g best_fitness: %g\n", average_fitness,
-               best_fitness);
+        printf("epoch: %6zu avgerage_fitness: %10g best_fitness: %10g\n", i,
+               average_fitness, best_fitness);
 
         generation = crossbred_generation;
     }
